@@ -1,4 +1,4 @@
-name: Secure Random Monitor V3
+name: google bugface V1
 
 # 核心：新任务启动时，旧任务必须立即停止
 concurrency:
