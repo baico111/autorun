@@ -1,4 +1,4 @@
-name: Secure Random Monitor V3
+name: Googleidx Keep Live
 
 concurrency:
   group: ${{ github.workflow }}
