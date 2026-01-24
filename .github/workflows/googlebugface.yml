@@ -5,8 +5,9 @@ concurrency:
   cancel-in-progress: true 
 
 on:
+  on:
   schedule:
-    - cron: '0 * * * *' 
+    - cron: '0 */5 * * *' # 意思是每隔 5 小时的 0 分运行一次
   workflow_dispatch:
 
 jobs:
