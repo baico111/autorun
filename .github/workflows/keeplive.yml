@@ -9,12 +9,13 @@ on:
 jobs:
   update-weather:
     runs-on: ubuntu-latest
-    # 必须确保拥有写入权限
     permissions:
-      contents: write
+      contents: write # 确保拥有写入权限
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 必须拉取全部历史，否则 pull 会失败
 
       - name: Process Weather and Time
         run: |
@@ -26,7 +27,7 @@ jobs:
           # 2. 获取长沙当前时间 (UTC+8)
           CS_TIME=$(date -d "+8 hours" "+%Y-%m-%d %H:%M:%S")
 
-          # 3. 获取长沙天气 (wttr.in 接口，简洁模式)
+          # 3. 获取长沙天气
           WEATHER=$(curl -s "https://wttr.in/Changsha?format=3&lang=zh-cn")
 
           # 4. 写入文件
@@ -34,8 +35,6 @@ jobs:
           echo "更新时间：$CS_TIME" >> changsha_weather.txt
           echo "实时天气：$WEATHER" >> changsha_weather.txt
           echo "状态：工作流自动更新成功" >> changsha_weather.txt
-          
-          echo "内容已生成：$CS_TIME - $WEATHER"
 
       - name: Commit and Push changes
         run: |
@@ -43,10 +42,13 @@ jobs:
           git config --local user.name "github-actions[bot]"
           git add changsha_weather.txt
           
-          # 检查是否有变动，避免空提交报错
           if git diff --staged --quiet; then
-            echo "没有内容变化，跳过推送"
+            echo "没有变化，跳过"
           else
             git commit -m "🛡️ 自动更新长沙天气报告: $(date -d '+8 hours' '+%Y-%m-%d %H:%M')"
-            git push
+            
+            # 关键修复：先拉取远程变动并合并，解决 rejected 错误
+            git pull --rebase origin main
+            
+            git push origin main
           fi
