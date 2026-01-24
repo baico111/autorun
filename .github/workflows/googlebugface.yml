@@ -1,4 +1,4 @@
-name: Googleidx Keep Live
+name: Google Idx Monitor
 
 concurrency:
   group: ${{ github.workflow }}
@@ -28,7 +28,6 @@ jobs:
 
       - name: Run Infinite Random Loop
         env:
-          # 严格从 Secrets 读取目标网址
           TARGET_URL: ${{ secrets.TARGET_URL }} 
           TG_TOKEN: ${{ secrets.TG_TOKEN }} 
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
@@ -44,7 +43,8 @@ jobs:
             try {
               let cmd;
               if (photoPath) {
-                cmd = \`curl -s -F \"chat_id=\${chatId}\" -F \"photo=@\${photoPath}\" -F \"caption=\${caption}\" https://api.telegram.org/bot\${token}/sendPhoto\`;
+                const escapedCaption = caption.replace(/\"/g, '\\\"');
+                cmd = \`curl -s -F \"chat_id=\${chatId}\" -F \"photo=@\${photoPath}\" -F \"caption=\${escapedCaption}\" https://api.telegram.org/bot\${token}/sendPhoto\`;
               } else {
                 cmd = \`curl -s -d \"chat_id=\${chatId}\" -d \"text=\${caption}\" https://api.telegram.org/bot\${token}/sendMessage\`;
               }
@@ -53,15 +53,13 @@ jobs:
           }
 
           (async () => {
-            // 从环境变量获取网址
             const targetUrl = process.env.TARGET_URL;
-            if (!targetUrl) {
-                console.error('错误：未检测到 TARGET_URL 变量，请检查 Secrets 配置！');
-                process.exit(1);
-            }
-            
-            const initialDelay = Math.floor(Math.random() * 5 * 60 * 1000);
-            console.log('启动延迟: ' + (initialDelay/60000).toFixed(1) + ' 分钟');
+            if (!targetUrl) process.exit(1);
+
+            // 1. 随机启动延迟 (固定在 2 到 5 分钟)
+            // 2分=120000ms, 5分=300000ms
+            const initialDelay = Math.floor(Math.random() * (300000 - 120000 + 1) + 120000);
+            console.log('随机启动延迟: ' + (initialDelay/60000).toFixed(2) + ' 分钟');
             await new Promise(r => setTimeout(r, initialDelay));
 
             const browser = await chromium.launch({ args: ['--disable-dev-shm-usage'] });
@@ -73,23 +71,34 @@ jobs:
             const page = await context.newPage();
 
             try {
-              console.log('正在访问变量地址: ' + targetUrl);
+              console.log('正在访问目标页面...');
               await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
               await new Promise(r => setTimeout(r, 15000)); 
               await page.screenshot({ path: 'monitor.png', fullPage: true });
-              
-              const bjTime = new Date(new Date().getTime() + 8 * 60 * 60 * 1000).toISOString().replace(/T/, ' ').replace(/\\..+/, '');
-              sendToTG('✅ 监控接力成功\\n⏰ 时间: \${bjTime}\\n🔗 目标: \${targetUrl}', 'monitor.png');
 
-              console.log('进入无限刷新模式...');
+              // 2. 格式化北京时间 (YYYY-MM-DD HH:mm:ss)
+              const d = new Date(new Date().getTime() + 8 * 60 * 60 * 1000);
+              const year = d.getUTCFullYear();
+              const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+              const day = String(d.getUTCDate()).padStart(2, '0');
+              const hours = String(d.getUTCHours()).padStart(2, '0');
+              const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+              const seconds = String(d.getUTCSeconds()).padStart(2, '0');
+              const bjTime = \`\${year}-\${month}-\${day} \${hours}:\${minutes}:\${seconds}\`;
+
+              // 3. 构造消息内容：目标显示为 Google Idx
+              const msg = \`✅ 监控接力成功\\n⏰ 时间: \${bjTime} (北京时间)\\n🔗 目标: Google Idx\`;
+              
+              sendToTG(msg, 'monitor.png');
+
+              // 4. 无限刷新循环 (1-2分钟随机刷新)
               while (true) {
                 const interval = Math.floor(Math.random() * (120 - 60 + 1) + 60) * 1000;
                 await new Promise(r => setTimeout(r, interval));
                 await page.reload({ waitUntil: 'domcontentloaded' });
-                await page.mouse.wheel(0, Math.floor(Math.random() * 400));
+                await page.mouse.wheel(0, Math.floor(Math.random() * 500));
               }
             } catch (err) {
-              console.error('运行出错:', err.message);
               sendToTG('⚠️ 监控异常: ' + err.message);
             } finally {
               await browser.close();
