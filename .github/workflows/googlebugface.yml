@@ -6,13 +6,13 @@ concurrency:
 
 on:
   schedule:
-    - cron: '0 * * * *' # 建议改为每小时执行，随机延迟缩小，防止堆积
+    - cron: '0 * * * *' 
   workflow_dispatch:
 
 jobs:
   dynamic-keep-alive:
     runs-on: ubuntu-latest
-    timeout-minutes: 55 # GitHub Actions 每小时任务建议限制在 60 分钟内
+    timeout-minutes: 55 
     steps:
       - uses: actions/checkout@v4
       
@@ -30,7 +30,7 @@ jobs:
       - name: Run Random Loop Session
         env:
           TARGET_URL: "https://nz.117.de5.net/"
-          TG_TOKEN: ${{ secrets.TG_TOKEN }} # 使用你指定的变量名
+          TG_TOKEN: ${{ secrets.TG_TOKEN }} 
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: |
           node -e "
@@ -38,22 +38,33 @@ jobs:
           const exec = require('child_process').execSync;
 
           function sendToTG(caption, photoPath = null) {
-            if (!process.env.TG_TOKEN || !process.env.TG_CHAT_ID) return;
+            // 严格对齐环境变量名
+            const token = process.env.TG_TOKEN;
+            const chatId = process.env.TG_CHAT_ID;
+            
+            if (!token || !chatId) {
+                console.log('跳过发送：TG_TOKEN 或 TG_CHAT_ID 未在环境中找到');
+                return;
+            }
+
             try {
-              let cmd = \`curl -s -F \"chat_id=\${process.env.TG_CHAT_ID}\" \`;
+              let cmd;
               if (photoPath) {
-                cmd += \`-F \"photo=@\${photoPath}\" -F \"caption=\${caption}\" https://api.telegram.org/bot\${process.env.TG_TOKEN}/sendPhoto\`;
+                cmd = \`curl -s -F \"chat_id=\${chatId}\" -F \"photo=@\${photoPath}\" -F \"caption=\${caption}\" https://api.telegram.org/bot\${token}/sendPhoto\`;
               } else {
-                cmd += \`-d \"text=\${caption}\" https://api.telegram.org/bot\${process.env.TG_TOKEN}/sendMessage\`;
+                cmd = \`curl -s -d \"chat_id=\${chatId}\" -d \"text=\${caption}\" https://api.telegram.org/bot\${token}/sendMessage\`;
               }
-              exec(cmd);
-            } catch (e) { console.log('TG发送失败'); }
+              const response = exec(cmd).toString();
+              console.log('TG API 响应:', response);
+            } catch (e) { 
+              console.log('TG发送指令执行失败: ' + e.message); 
+            }
           }
 
           (async () => {
             const targetUrl = process.env.TARGET_URL;
             
-            // 1. 随机启动延迟 (缩短到 0-10 分钟，避免占用过多 Action 时间导致超时)
+            // 1. 随机启动延迟 (0-10分钟)
             const initialDelay = Math.floor(Math.random() * 10 * 60 * 1000);
             console.log('随机启动延迟: ' + (initialDelay/60000).toFixed(1) + ' 分钟');
             await new Promise(r => setTimeout(r, initialDelay));
@@ -61,39 +72,43 @@ jobs:
             const browser = await chromium.launch({ args: ['--disable-dev-shm-usage'] });
             const context = await browser.newContext({
               viewport: { width: 1280, height: 1200 },
-              locale: 'zh-CN', // 强制中文环境
+              locale: 'zh-CN',
               userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
             });
             const page = await context.newPage();
 
             try {
-              console.log('正在访问目标页面...');
-              // 关键修复：改为 commit 模式，只要页面基本加载就继续，不再死等所有网络请求
+              console.log('正在访问页面...');
+              // 放弃等待 networkidle，改为 domcontentloaded 提高成功率
               await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
               
-              // 强制等待页面 JS 渲染
-              await new Promise(r => setTimeout(r, 10000));
-              await page.screenshot({ path: 'monitor.png', fullPage: true });
+              // 关键：哪吒面板需要时间加载 WebSocket 数据，这里强制等 15 秒
+              await new Promise(r => setTimeout(r, 15000)); 
               
-              const bjTime = new Date(new Date().getTime() + 8 * 60 * 60 * 1000).toISOString().replace(/T/, ' ').replace(/\\..+/, '');
-              sendToTG('📊 网页自动巡检\\n⏰ 时间: ' + bjTime + ' (北京时间)\\n🔗 目标: ' + targetUrl, 'monitor.png');
+              await page.screenshot({ path: 'monitor.png', fullPage: true });
+              console.log('截图已保存');
 
-              // 3. 随机刷新循环 (保持运行一段时间)
-              console.log('进入随机刷新循环...');
-              let count = 0;
-              while (count < 5) { // 限制循环次数，防止 Action 运行超时被强制杀掉
-                const randomInterval = Math.floor(Math.random() * (120 - 60 + 1) + 60) * 1000;
-                await new Promise(r => setTimeout(r, randomInterval));
-                console.log('执行随机刷新，间隔: ' + (randomInterval/1000).toFixed(0) + ' 秒');
+              // 生成中国时间
+              const bjTime = new Date(new Date().getTime() + 8 * 60 * 60 * 1000).toISOString().replace(/T/, ' ').replace(/\\..+/, '');
+              const msg = \`📊 网页巡检报告\\n⏰ 时间: \${bjTime} (北京时间)\\n🔗 地址: \${targetUrl}\`;
+              
+              console.log('准备发送 TG...');
+              sendToTG(msg, 'monitor.png');
+
+              // 随机刷新循环
+              console.log('进入循环模式...');
+              for (let i = 0; i < 5; i++) {
+                const interval = Math.floor(Math.random() * 60 + 60) * 1000;
+                await new Promise(r => setTimeout(r, interval));
+                console.log('第 ' + (i+1) + ' 次刷新...');
                 await page.reload({ waitUntil: 'domcontentloaded' });
-                count++;
               }
             } catch (err) {
-              console.error('运行出错:', err.message);
-              sendToTG('⚠️ 运行异常: ' + err.message);
+              console.error('运行异常:', err.message);
+              sendToTG('⚠️ 监控异常报: ' + err.message);
             } finally {
               await browser.close();
-              console.log('任务结束');
+              console.log('任务流执行完毕');
             }
           })();
           "
