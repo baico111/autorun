@@ -1,8 +1,9 @@
-name: run nztz
+name: Hourly Website Screenshot
+
 on:
   schedule:
-    - cron: '0 * * * *' # 每小时运行一次
-  workflow_dispatch:      # 支持手动触发
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
 jobs:
   screenshot-and-send:
@@ -16,22 +17,26 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Install dependencies
+      - name: Install Chinese Fonts and Dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y fonts-noto-cjk
           python -m pip install --upgrade pip
-          pip install playwright
+          # 增加 pytz 用于处理中国时区
+          pip install playwright pytz
           playwright install chromium
 
       - name: Capture and Send
         env:
-          # 使用你指定的变量名
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         shell: python
         run: |
           import os
-          from playwright.sync_api import sync_playwright
           import subprocess
+          from datetime import datetime
+          import pytz
+          from playwright.sync_api import sync_playwright
 
           def run():
               # 获取环境变量
@@ -40,25 +45,33 @@ jobs:
               url = "https://nz.117.de5.net/"
               photo_path = "screenshot.png"
 
+              # 获取中国标准时间 (CST)
+              tz = pytz.timezone('Asia/Shanghai')
+              now_china = datetime.now(tz).strftime('%Y-%m-%d %H:%M:%S')
+
               with sync_playwright() as p:
-                  print(f"正在访问并截图: {url}")
+                  print(f"[{now_china}] 正在启动浏览器访问: {url}")
                   browser = p.chromium.launch()
-                  page = browser.new_page()
+                  context = browser.new_context(locale="zh-CN")
+                  page = context.new_page()
+                  
                   try:
-                      page.goto(url, timeout=60000)
-                      page.wait_for_timeout(5000)
+                      page.goto(url, timeout=60000, wait_until="networkidle")
+                      page.wait_for_timeout(5000) 
                       page.screenshot(path=photo_path, full_page=True)
                       
-                      # 发送至 Telegram
+                      # 发送至 Telegram，Caption 包含中国时间
+                      caption = f"📊 网页监控截图\n⏰ 时间: {now_china} (北京时间)\n🔗 地址: {url}"
+                      
                       cmd = [
                           "curl", "-s", "-X", "POST",
                           f"https://api.telegram.org/bot{token}/sendPhoto",
                           "-F", f"chat_id={chat_id}",
                           "-F", f"photo=@{photo_path}",
-                          "-F", f"caption=定时任务截图: {url}"
+                          "-F", f"caption={caption}"
                       ]
                       subprocess.run(cmd, capture_output=True, text=True)
-                      print("任务执行完成。")
+                      print(f"任务执行完成，时间：{now_china}")
                           
                   except Exception as e:
                       print(f"出错: {e}")
