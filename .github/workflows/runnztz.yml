@@ -1,4 +1,4 @@
-name: Hourly Website Screenshot
+name: run nztz
 
 on:
   schedule:
