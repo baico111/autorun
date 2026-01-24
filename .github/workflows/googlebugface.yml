@@ -1,4 +1,4 @@
-name: google bugface V1
+name: Secure Random Monitor V3
 
 # 核心：新任务启动时，旧任务必须立即停止
 concurrency:
@@ -7,14 +7,14 @@ concurrency:
 
 on:
   schedule:
-    # 稍微提高触发频率（每3小时），配合脚本内的随机延迟实现“4小时左右”的动态效果
+    # 设定每 3 小时触发一次作为基准
     - cron: '0 */3 * * *'
   workflow_dispatch:
 
 jobs:
   dynamic-keep-alive:
     runs-on: ubuntu-latest
-    timeout-minutes: 350 # 给足运行时间
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       
@@ -27,7 +27,6 @@ jobs:
       - name: Run Random Loop Session
         env:
           TARGET_URL: ${{ secrets.TARGET_URL }}
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
           TG_BOT_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: |
@@ -36,6 +35,7 @@ jobs:
           const exec = require('child_process').execSync;
 
           function sendToTG(caption, photoPath = null) {
+            if (!process.env.TG_BOT_TOKEN || !process.env.TG_CHAT_ID) return;
             try {
               let cmd = \`curl -s -F \"chat_id=\${process.env.TG_CHAT_ID}\" \`;
               if (photoPath) {
@@ -48,13 +48,19 @@ jobs:
           }
 
           (async () => {
-            // --- 1. 初始随机等待 (实现 4 小时左右的不固定启动) ---
-            // 延迟 0 到 60 分钟启动
+            const targetUrl = process.env.TARGET_URL;
+            if (!targetUrl || targetUrl.trim() === '') {
+               console.error('错误: TARGET_URL 未在 Secrets 中配置！');
+               process.exit(1);
+            }
+
+            // 1. 随机启动延迟 (实现 4 小时左右的不固定效果)
             const initialDelay = Math.floor(Math.random() * 60 * 60 * 1000);
             console.log('随机启动延迟: ' + (initialDelay/60000).toFixed(1) + ' 分钟');
             await new Promise(r => setTimeout(r, initialDelay));
 
             const browser = await chromium.launch({ args: ['--disable-dev-shm-usage'] });
+            // 删除了 HF_TOKEN 相关的 extraHTTPHeaders
             const context = await browser.newContext({
               viewport: { width: 1280, height: 800 },
               userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
@@ -62,28 +68,24 @@ jobs:
             const page = await context.newPage();
 
             try {
-              // --- 2. 登录并马上截图 ---
-              console.log('访问目标网站...');
-              await page.goto(process.env.TARGET_URL, { waitUntil: 'networkidle', timeout: 120000 });
+              console.log('正在访问目标页面...');
+              await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 120000 });
               
-              // 模拟人为停顿后截图
-              await new Promise(r => setTimeout(r, 5000));
+              // 2. 登录后马上截图并发送
+              await new Promise(r => setTimeout(r, 8000));
               await page.screenshot({ path: 'login.png' });
               
               const bjTime = new Date(new Date().getTime() + 8 * 60 * 60 * 1000).toLocaleString('zh-CN', {timeZone: 'UTC'});
-              sendToTG('🔔 随机巡检启动\\n⏰ 时间: ' + bjTime + '\\n✅ 已登录并完成初始截图', 'login.png');
+              sendToTG('🔔 随机巡检启动\\n⏰ 时间: ' + bjTime + '\\n✅ 已完成初始截图', 'login.png');
 
-              // --- 3. 随机刷新循环 (每 2 分钟左右) ---
+              // 3. 随机刷新循环 (每 2 分钟左右)
               console.log('进入随机刷新循环...');
               while (true) {
-                // 生成 90秒 到 210秒 之间的随机数 (平均 150秒，即 2.5分钟左右)
                 const randomInterval = Math.floor(Math.random() * (210 - 90 + 1) + 90) * 1000;
                 await new Promise(r => setTimeout(r, randomInterval));
 
                 console.log('执行随机刷新，间隔: ' + (randomInterval/1000).toFixed(0) + ' 秒');
                 await page.reload({ waitUntil: 'domcontentloaded' });
-                
-                // 模拟随机鼠标滚动
                 await page.mouse.wheel(0, Math.floor(Math.random() * 300));
               }
             } catch (err) {
