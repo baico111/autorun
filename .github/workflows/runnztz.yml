@@ -1,0 +1,69 @@
+name: run nztz
+on:
+  schedule:
+    - cron: '0 * * * *' # 每小时运行一次
+  workflow_dispatch:      # 支持手动触发
+
+jobs:
+  screenshot-and-send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          playwright install chromium
+
+      - name: Capture and Send
+        env:
+          # 使用你指定的变量名
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        shell: python
+        run: |
+          import os
+          from playwright.sync_api import sync_playwright
+          import subprocess
+
+          def run():
+              # 获取环境变量
+              token = os.environ.get('TG_TOKEN')
+              chat_id = os.environ.get('TG_CHAT_ID')
+              url = "https://nz.117.de5.net/"
+              photo_path = "screenshot.png"
+
+              with sync_playwright() as p:
+                  print(f"正在访问并截图: {url}")
+                  browser = p.chromium.launch()
+                  page = browser.new_page()
+                  try:
+                      page.goto(url, timeout=60000)
+                      page.wait_for_timeout(5000)
+                      page.screenshot(path=photo_path, full_page=True)
+                      
+                      # 发送至 Telegram
+                      cmd = [
+                          "curl", "-s", "-X", "POST",
+                          f"https://api.telegram.org/bot{token}/sendPhoto",
+                          "-F", f"chat_id={chat_id}",
+                          "-F", f"photo=@{photo_path}",
+                          "-F", f"caption=定时任务截图: {url}"
+                      ]
+                      subprocess.run(cmd, capture_output=True, text=True)
+                      print("任务执行完成。")
+                          
+                  except Exception as e:
+                      print(f"出错: {e}")
+                  finally:
+                      browser.close()
+
+          if __name__ == "__main__":
+              run()
