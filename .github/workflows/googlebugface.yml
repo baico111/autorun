@@ -12,7 +12,6 @@ on:
 jobs:
   dynamic-keep-alive:
     runs-on: ubuntu-latest
-    timeout-minutes: 55 
     steps:
       - uses: actions/checkout@v4
       
@@ -27,9 +26,10 @@ jobs:
           npm install playwright
           npx playwright install chromium --with-deps
 
-      - name: Run Random Loop Session
+      - name: Run Infinite Random Loop
         env:
-          TARGET_URL: "https://nz.117.de5.net/"
+          # 严格从 Secrets 读取目标网址
+          TARGET_URL: ${{ secrets.TARGET_URL }} 
           TG_TOKEN: ${{ secrets.TG_TOKEN }} 
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
         run: |
@@ -38,15 +38,9 @@ jobs:
           const exec = require('child_process').execSync;
 
           function sendToTG(caption, photoPath = null) {
-            // 严格对齐环境变量名
             const token = process.env.TG_TOKEN;
             const chatId = process.env.TG_CHAT_ID;
-            
-            if (!token || !chatId) {
-                console.log('跳过发送：TG_TOKEN 或 TG_CHAT_ID 未在环境中找到');
-                return;
-            }
-
+            if (!token || !chatId) return;
             try {
               let cmd;
               if (photoPath) {
@@ -54,19 +48,20 @@ jobs:
               } else {
                 cmd = \`curl -s -d \"chat_id=\${chatId}\" -d \"text=\${caption}\" https://api.telegram.org/bot\${token}/sendMessage\`;
               }
-              const response = exec(cmd).toString();
-              console.log('TG API 响应:', response);
-            } catch (e) { 
-              console.log('TG发送指令执行失败: ' + e.message); 
-            }
+              exec(cmd);
+            } catch (e) { console.log('TG发送失败'); }
           }
 
           (async () => {
+            // 从环境变量获取网址
             const targetUrl = process.env.TARGET_URL;
+            if (!targetUrl) {
+                console.error('错误：未检测到 TARGET_URL 变量，请检查 Secrets 配置！');
+                process.exit(1);
+            }
             
-            // 1. 随机启动延迟 (0-10分钟)
-            const initialDelay = Math.floor(Math.random() * 10 * 60 * 1000);
-            console.log('随机启动延迟: ' + (initialDelay/60000).toFixed(1) + ' 分钟');
+            const initialDelay = Math.floor(Math.random() * 5 * 60 * 1000);
+            console.log('启动延迟: ' + (initialDelay/60000).toFixed(1) + ' 分钟');
             await new Promise(r => setTimeout(r, initialDelay));
 
             const browser = await chromium.launch({ args: ['--disable-dev-shm-usage'] });
@@ -78,37 +73,26 @@ jobs:
             const page = await context.newPage();
 
             try {
-              console.log('正在访问页面...');
-              // 放弃等待 networkidle，改为 domcontentloaded 提高成功率
+              console.log('正在访问变量地址: ' + targetUrl);
               await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
-              
-              // 关键：哪吒面板需要时间加载 WebSocket 数据，这里强制等 15 秒
               await new Promise(r => setTimeout(r, 15000)); 
-              
               await page.screenshot({ path: 'monitor.png', fullPage: true });
-              console.log('截图已保存');
-
-              // 生成中国时间
-              const bjTime = new Date(new Date().getTime() + 8 * 60 * 60 * 1000).toISOString().replace(/T/, ' ').replace(/\\..+/, '');
-              const msg = \`📊 网页巡检报告\\n⏰ 时间: \${bjTime} (北京时间)\\n🔗 地址: \${targetUrl}\`;
               
-              console.log('准备发送 TG...');
-              sendToTG(msg, 'monitor.png');
+              const bjTime = new Date(new Date().getTime() + 8 * 60 * 60 * 1000).toISOString().replace(/T/, ' ').replace(/\\..+/, '');
+              sendToTG('✅ 监控接力成功\\n⏰ 时间: \${bjTime}\\n🔗 目标: \${targetUrl}', 'monitor.png');
 
-              // 随机刷新循环
-              console.log('进入循环模式...');
-              for (let i = 0; i < 5; i++) {
-                const interval = Math.floor(Math.random() * 60 + 60) * 1000;
+              console.log('进入无限刷新模式...');
+              while (true) {
+                const interval = Math.floor(Math.random() * (120 - 60 + 1) + 60) * 1000;
                 await new Promise(r => setTimeout(r, interval));
-                console.log('第 ' + (i+1) + ' 次刷新...');
                 await page.reload({ waitUntil: 'domcontentloaded' });
+                await page.mouse.wheel(0, Math.floor(Math.random() * 400));
               }
             } catch (err) {
-              console.error('运行异常:', err.message);
-              sendToTG('⚠️ 监控异常报: ' + err.message);
+              console.error('运行出错:', err.message);
+              sendToTG('⚠️ 监控异常: ' + err.message);
             } finally {
               await browser.close();
-              console.log('任务流执行完毕');
             }
           })();
           "
