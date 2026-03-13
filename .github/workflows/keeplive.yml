@@ -2,8 +2,6 @@ name: Changsha Weather Heartbeat
 
 on:
   schedule:
-    # 设定每 4 小时触发一次作为基准
-    - cron: '0 */4 * * *'
   workflow_dispatch:
 
 jobs:
